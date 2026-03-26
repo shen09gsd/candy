@@ -38,6 +38,7 @@ public:
     int setPassword(const std::string &password);
     int setDHCP(const std::string &cidr);
     int setSdwan(const std::string &sdwan);
+    int setSdwanFile(const std::string &path);
     int run();
     int shutdown();
 

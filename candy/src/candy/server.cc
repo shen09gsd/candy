@@ -19,6 +19,9 @@ bool run(const Poco::JSON::Object &config) {
         server->setPassword(config.getValue<std::string>("password"));
         server->setDHCP(config.getValue<std::string>("dhcp"));
         server->setSdwan(config.getValue<std::string>("sdwan"));
+        if (config.has("sdwan_file")) {
+            server->setSdwanFile(config.getValue<std::string>("sdwan_file"));
+        }
         server->run();
     }
     return true;

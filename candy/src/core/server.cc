@@ -19,6 +19,10 @@ void Server::setSdwan(const std::string &sdwan) {
     ws.setSdwan(sdwan);
 }
 
+void Server::setSdwanFile(const std::string &path) {
+    ws.setSdwanFile(path);
+}
+
 void Server::run() {
     running.store(true);
     ws.run();

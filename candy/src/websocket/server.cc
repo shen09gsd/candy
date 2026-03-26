@@ -12,6 +12,7 @@
 #include <Poco/Timespan.h>
 #include <Poco/URI.h>
 #include <exception>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -124,6 +125,53 @@ int WebSocketServer::setSdwan(const std::string &sdwan) {
         spdlog::info("route: dev={} dst={} next={}", rt.dev.toCidr(), rt.dst.toCidr(), rt.next.toString());
         this->routes.push_back(rt);
     }
+    return 0;
+}
+
+int WebSocketServer::setSdwanFile(const std::string &path) {
+    if (path.empty()) {
+        return 0;
+    }
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        spdlog::critical("failed to open sdwan file: {}", path);
+        return -1;
+    }
+    std::string line;
+    while (std::getline(file, line)) {
+        // trim whitespace
+        size_t start = line.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos) {
+            continue; // empty line
+        }
+        size_t end = line.find_last_not_of(" \t\r\n");
+        line = line.substr(start, end - start + 1);
+        // skip comments
+        if (line[0] == '#') {
+            continue;
+        }
+        std::string addr;
+        SysRoute rt;
+        std::stringstream ss(line);
+        // dev
+        if (!std::getline(ss, addr, ',') || rt.dev.fromCidr(addr) || rt.dev.Host() != rt.dev.Net()) {
+            spdlog::critical("invalid route device: {}", line);
+            return -1;
+        }
+        // dst
+        if (!std::getline(ss, addr, ',') || rt.dst.fromCidr(addr) || rt.dst.Host() != rt.dst.Net()) {
+            spdlog::critical("invalid route dest: {}", line);
+            return -1;
+        }
+        // next
+        if (!std::getline(ss, addr, ',') || rt.next.fromString(addr)) {
+            spdlog::critical("invalid route nexthop: {}", line);
+            return -1;
+        }
+        spdlog::info("route from file: dev={} dst={} next={}", rt.dev.toCidr(), rt.dst.toCidr(), rt.next.toString());
+        this->routes.push_back(rt);
+    }
+    file.close();
     return 0;
 }
 

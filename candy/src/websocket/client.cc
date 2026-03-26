@@ -166,11 +166,6 @@ int WebSocketClient::handleWsConn() {
             return 0;
         }
 
-        if (this->ws->getError()) {
-            spdlog::warn("websocket connection error: {}", this->ws->getError());
-            return -1;
-        }
-
         buffer.resize(1500);
         int length = this->ws->receiveFrame(buffer.data(), buffer.size(), flags);
         if (length == 0 && flags == 0) {

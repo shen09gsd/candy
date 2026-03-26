@@ -20,9 +20,9 @@ using namespace Poco::Net;
 bool isLocalNetwork(const SocketAddress &addr) {
     IPAddress ip = addr.host();
 
-    if (ip.isV4()) {
+    if (ip.family() == IPAddress::IPv4) {
         return ip.isSiteLocal() || ip.isLinkLocal() || ip.isSiteLocalMC();
-    } else if (ip.isV6()) {
+    } else if (ip.family() == IPAddress::IPv6) {
         spdlog::error("unexpected ipv6 local address");
     }
 

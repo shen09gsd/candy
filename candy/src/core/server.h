@@ -15,6 +15,7 @@ public:
     void setPassword(const std::string &password);
     void setDHCP(const std::string &cidr);
     void setSdwan(const std::string &sdwan);
+    void setSdwanFile(const std::string &path);
 
     // 启动服务端,非阻塞
     void run();
