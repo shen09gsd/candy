@@ -2,10 +2,13 @@
 #ifndef CANDY_TUN_TUN_H
 #define CANDY_TUN_TUN_H
 
+#include "candy/kernel_route.h"
 #include "core/message.h"
 #include "core/net.h"
 #include <any>
 #include <list>
+#include <map>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <thread>
@@ -53,8 +56,17 @@ private:
     int setSysRtTable(const SysRouteEntry &entry);
     int setSysRtTable(IP4 dst, IP4 mask, IP4 nexthop);
 
+    // Kernel routing lookup - uses netlink instead of linear scan
+    // Returns true if route found, nexthop and iface are filled
+    bool lookupRoute(IP4 daddr, IP4 &nexthop, std::string &iface);
+
     std::shared_mutex sysRtMutex;
     std::list<SysRouteEntry> sysRtTable;
+
+    // Peer subnet tracking: maps destination subnet to peer IP for encapsulation
+    // This is needed because kernel routing can't tell us which peer to send to
+    std::mutex peerMutex;
+    std::map<uint32_t, IP4> peerSubnets; // subnet -> peer nexthop mapping
 
 private:
     std::any impl;

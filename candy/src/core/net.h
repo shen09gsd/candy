@@ -48,7 +48,9 @@ template <typename T> T hton(T v) {
 class __attribute__((packed)) IP4 {
 public:
     IP4(const std::string &ip = "0.0.0.0");
+    explicit IP4(uint32_t ip) { raw = {(uint8_t)(ip & 0xFF), (uint8_t)((ip >> 8) & 0xFF), (uint8_t)((ip >> 16) & 0xFF), (uint8_t)((ip >> 24) & 0xFF)}; }
     IP4 operator=(const std::string &ip);
+    IP4 &operator=(uint32_t ip) { raw = {(uint8_t)(ip & 0xFF), (uint8_t)((ip >> 8) & 0xFF), (uint8_t)((ip >> 16) & 0xFF), (uint8_t)((ip >> 24) & 0xFF)}; return *this; }
     IP4 operator&(IP4 another) const;
     IP4 operator|(IP4 another) const;
     IP4 operator^(IP4 another) const;

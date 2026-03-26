@@ -52,28 +52,54 @@ int Tun::handleTunDevice() {
         return 0;
     }
 
-    IP4 nextHop = [&]() {
-        std::shared_lock lock(this->sysRtMutex);
-        for (auto const &rt : sysRtTable) {
-            if ((header->daddr & rt.mask) == rt.dst) {
-                return rt.nexthop;
-            }
+    // Use kernel routing via netlink (radix tree O(log n) lookup instead of O(n) linear scan)
+    IP4 nextHop;
+    std::string iface;
+    bool routeFound = lookupRoute(header->daddr, nextHop, iface);
+
+    if (routeFound && !nextHop.empty()) {
+        // Check if this is a peer route (nexthop != own IP and nexthop != destination)
+        if (nextHop != getIP() && nextHop != header->daddr) {
+            // Peer route: need to encapsulate and send to peer
+            buffer.insert(0, sizeof(IP4Header), 0);
+            header = (IP4Header *)buffer.data();
+            header->protocol = 0x04;  // IP-in-IP
+            header->saddr = getIP();
+            header->daddr = nextHop;
+            // Send to peer via peer connection
+            this->client->getPeerMsgQueue().write(Msg(MsgKind::PACKET, std::move(buffer)));
+            return 0;
         }
-        return IP4();
-    }();
-    if (!nextHop.empty()) {
-        buffer.insert(0, sizeof(IP4Header), 0);
-        header = (IP4Header *)buffer.data();
-        header->protocol = 0x04;
-        header->saddr = getIP();
-        header->daddr = nextHop;
     }
 
+    // Local delivery: destination is own IP or directly connected subnet
     if (header->daddr == getIP()) {
         write(buffer);
         return 0;
     }
 
+    // If route found and points to a directly connected interface, write to TUN
+    // The kernel has already done the routing decision, we just write to TUN
+    if (routeFound && !iface.empty()) {
+        // Check if this should be delivered locally (not to a peer)
+        bool isPeerRoute = [&]() {
+            std::lock_guard lock(this->peerMutex);
+            for (auto const &p : peerSubnets) {
+                if ((header->daddr & p.first) == p.first) {
+                    return true;
+                }
+            }
+            return false;
+        }();
+
+        if (!isPeerRoute) {
+            // Write to TUN for kernel to deliver locally
+            write(buffer);
+            return 0;
+        }
+    }
+
+    // Fallback: send to peer for server to handle routing
     this->client->getPeerMsgQueue().write(Msg(MsgKind::PACKET, std::move(buffer)));
     return 0;
 }
@@ -148,6 +174,13 @@ int Tun::handleSysRt(Msg msg) {
     SysRouteEntry *rt = (SysRouteEntry *)msg.data.data();
     if (rt->nexthop != getIP()) {
         spdlog::info("route: {}/{} via {}", rt->dst.toString(), rt->mask.toPrefix(), rt->nexthop.toString());
+
+        // Track peer subnets for encapsulation decisions
+        {
+            std::lock_guard lock(this->peerMutex);
+            peerSubnets[rt->mask] = rt->nexthop;
+        }
+
         if (setSysRtTable(*rt)) {
             return -1;
         }
@@ -159,6 +192,34 @@ int Tun::setSysRtTable(const SysRouteEntry &entry) {
     std::unique_lock lock(this->sysRtMutex);
     this->sysRtTable.push_back(entry);
     return setSysRtTable(entry.dst, entry.mask, entry.nexthop);
+}
+
+bool Tun::lookupRoute(IP4 daddr, IP4 &nexthop, std::string &iface) {
+    uint32_t daddr_raw = daddr;
+    uint32_t nexthop_raw;
+    std::string iface_out;
+
+    // Use netlink to lookup route in kernel routing table (radix tree)
+    // This is O(log n) instead of O(n) linear scan
+    int ret = candy::lookupKernelRoute(daddr_raw, nexthop_raw, iface_out);
+
+    if (ret == 0) {
+        nexthop = nexthop_raw;
+        iface = iface_out;
+        return true;
+    }
+
+    // Fallback to user-space table if netlink lookup fails
+    std::shared_lock lock(this->sysRtMutex);
+    for (auto const &rt : sysRtTable) {
+        if ((daddr_raw & rt.mask) == rt.dst) {
+            nexthop = rt.nexthop;
+            iface = "";
+            return true;
+        }
+    }
+
+    return false;
 }
 
 Client &Tun::getClient() {

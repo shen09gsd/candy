@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "websocket/server.h"
+#include "candy/kernel_route.h"
 #include "core/net.h"
 #include "utils/time.h"
 #include "websocket/message.h"
@@ -124,6 +125,22 @@ int WebSocketServer::setSdwan(const std::string &sdwan) {
         }
         spdlog::info("route: dev={} dst={} next={}", rt.dev.toCidr(), rt.dst.toCidr(), rt.next.toString());
         this->routes.push_back(rt);
+
+        // Add route to kernel via netlink for efficient radix tree lookup
+        SysRouteEntry entry;
+        entry.dst = rt.dst.Net();
+        entry.mask = rt.dst.Mask();
+        entry.nexthop = rt.next;
+        std::string dev_name = rt.dev.toCidr();
+        // Extract interface name (remove /mask)
+        size_t slash = dev_name.find('/');
+        if (slash != std::string::npos) {
+            dev_name = dev_name.substr(0, slash);
+        }
+        if (addKernelRoute(entry, dev_name) != 0) {
+            spdlog::warn("failed to add route to kernel: {} via {}", rt.dst.toCidr(), rt.next.toString());
+            // Continue anyway, user-space routing can still work
+        }
     }
     return 0;
 }
@@ -170,6 +187,20 @@ int WebSocketServer::setSdwanFile(const std::string &path) {
         }
         spdlog::info("route from file: dev={} dst={} next={}", rt.dev.toCidr(), rt.dst.toCidr(), rt.next.toString());
         this->routes.push_back(rt);
+
+        // Add route to kernel via netlink for efficient radix tree lookup
+        SysRouteEntry entry;
+        entry.dst = rt.dst.Net();
+        entry.mask = rt.dst.Mask();
+        entry.nexthop = rt.next;
+        std::string dev_name = rt.dev.toCidr();
+        size_t slash = dev_name.find('/');
+        if (slash != std::string::npos) {
+            dev_name = dev_name.substr(0, slash);
+        }
+        if (addKernelRoute(entry, dev_name) != 0) {
+            spdlog::warn("failed to add route to kernel: {} via {}", rt.dst.toCidr(), rt.next.toString());
+        }
     }
     file.close();
     return 0;
